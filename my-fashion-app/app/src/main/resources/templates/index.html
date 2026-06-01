@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>Fashion Inspiration Hub</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .garment-card { transition: transform 0.2s; cursor: pointer; }
+        .garment-card:hover { transform: scale(1.03); }
+        .gallery-img { height: 250px; object-fit: cover; }
+        .filter-badge { cursor: pointer; margin-right: 5px; }
+    </style>
+</head>
+<body class="bg-light">
+
+<div class="container py-5">
+    <div class="d-flex justify-content-between align-items-center mb-5">
+        <div>
+            <h1 class="fw-bold text-dark">Fashion Inspiration</h1>
+            <p class="text-muted">AI-Powered Garment Classification & Organization</p>
+        </div>
+        <div>
+            <input type="file" id="fileInput" class="d-none" accept="image/*" onchange="handleUpload(this)">
+            <button class="btn btn-primary btn-lg" onclick="document.getElementById('fileInput').click()">
+                📸 Upload Inspiration
+            </button>
+        </div>
+    </div>
+
+    <div class="card shadow-sm mb-4">
+        <div class="card-body">
+            <div class="input-group mb-3">
+                <input type="text" id="searchInput" class="form-control" placeholder="Search descriptions or notes (e.g., 'embroidered neckline', 'artisan market')..." oninput="fetchGarments()">
+                <button class="btn btn-outline-secondary" type="button">Search</button>
+            </div>
+            
+            <div class="row text-sm">
+                <div class="col-md-6 mb-2">
+                    <span class="fw-bold text-secondary me-2">Garment Types:</span>
+                    <div id="typeFilters" class="d-inline-block"></div>
+                </div>
+                <div class="col-md-6 mb-2">
+                    <span class="fw-bold text-secondary me-2">Materials:</span>
+                    <div id="materialFilters" class="d-inline-block"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="uploadStatus" class="alert alert-info d-none" role="alert">
+        Parsing image with Multi-modal AI... Please wait...
+    </div>
+
+    <div class="row row-cols-1 row-cols-md-3 row-cols-lg-4 g-4" id="garmentGrid">
+        </div>
+</div>
+
+<div class="modal fade" id="annotationModal" tabindex="-1" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="modalTitle">Garment Specifications</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div class="row">
+                    <div class="col-md-5">
+                        <img id="modalImg" src="" class="img-fluid rounded shadow-sm" alt="Garment">
+                    </div>
+                    <div class="col-md-7">
+                        <h6><strong>AI Analysis Description</strong></h6>
+                        <p id="modalDesc" class="text-muted bg-light p-2 rounded"></p>
+                        
+                        <table class="table table-sm table-borderless">
+                            <tr><td><strong>Type:</strong></td><td id="modalType"></td></tr>
+                            <tr><td><strong>Style:</strong></td><td id="modalStyle"></td></tr>
+                            <tr><td><strong>Material:</strong></td><td id="modalMaterial"></td></tr>
+                            <tr><td><strong>Season:</strong></td><td id="modalSeason"></td></tr>
+                        </table>
+
+                        <hr>
+                        <h6><strong>Designer Annotations</strong></h6>
+                        <input type="hidden" id="currentGarmentId">
+                        <div class="mb-3">
+                            <label class="form-label text-xs text-muted">Custom Tags (Comma separated)</label>
+                            <input type="text" id="customTagsInput" class="form-control form-control-sm" placeholder="e.g., retro, summer-2026, client-xyz">
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label text-xs text-muted">Observations & Notes</label>
+                            <textarea id="designerNotesInput" class="form-control form-control-sm" rows="3" placeholder="Add field notes, tailoring details, or styling ideas..."></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-success" onclick="saveAnnotations()">Save Annotations</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+    let activeTypeFilter = '';
+    let activeMaterialFilter = '';
+
+    // Automatically fetch data when the page has finished loading
+    document.addEventListener("DOMContentLoaded", () => {
+        fetchGarments();
+        fetchFilters();
+    });
+
+    // 1. Fetch the garment feed and render the grid
+    function fetchGarments() {
+        const keyword = document.getElementById('searchInput').value;
+        let url = `/api/garments`;
+        
+        // If there is a search keyword, call the search API (this can be extended to a combined query with filters)
+        if (keyword) {
+            url = `/api/garments/search?keyword=${encodeURIComponent(keyword)}`;
+        }
+
+        fetch(url)
+            .then(res => res.json())
+            .then(data => {
+                const grid = document.getElementById('garmentGrid');
+                grid.innerHTML = '';
+                
+                // Perform secondary filtering in the frontend (fastest and lightest backend approach for this PoC)
+                const filteredData = data.filter(item => {
+                    return (!activeTypeFilter || item.garmentType === activeTypeFilter) &&
+                           (!activeMaterialFilter || item.material === activeMaterialFilter);
+                });
+
+                if(filteredData.length === 0) {
+                    grid.innerHTML = `<div class="col-10 py-5 text-center text-muted w-100">No garment items found matching criteria.</div>`;
+                    return;
+                }
+
+                filteredData.forEach(item => {
+                    grid.innerHTML += `
+                        <div class="col">
+                            <div class="card h-100 shadow-sm garment-card" onclick="openAnnotationModal(${JSON.stringify(item).replace(/"/g, '&quot;')})">
+                                <img src="${item.imageUrl}" class="card-img-top gallery-img" alt="Inspiration">
+                                <div class="card-body">
+                                    <span class="badge bg-secondary mb-2">${item.garmentType || 'Unknown'}</span>
+                                    <p class="card-text text-truncate small">${item.description || 'No AI description generated.'}</p>
+                                    ${item.customTags ? item.customTags.split(',').map(t => `<span class="badge bg-info text-dark me-1" style="font-size:0.75rem;">#${t.trim()}</span>`).join('') : ''}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            });
+    }
+
+    // 2. Dynamically generate the filter menu
+    function fetchFilters() {
+        // Request the backend for the current distinct fields in the database
+        Promise.all([
+            fetch('/api/garments/filters/types').then(r => r.json()),
+            fetch('/api/garments/filters/materials').then(r => r.json())
+        ]).then(([types, materials]) => {
+            renderFilterBadges('typeFilters', types, (val) => { activeTypeFilter = val; fetchGarments(); });
+            renderFilterBadges('materialFilters', materials, (val) => { activeMaterialFilter = val; fetchGarments(); });
+        });
+    }
+
+    function renderFilterBadges(containerId, items, onClickAction) {
+        const container = document.getElementById(containerId);
+        container.innerHTML = `<span class="badge bg-dark filter-badge" onclick="resetIndividualFilter('${containerId}')">All</span>`;
+        items.forEach(item => {
+            if(item) {
+                container.innerHTML += `<span class="badge bg-outline-primary border text-dark filter-badge" onclick="setActiveFilter(this, '${containerId}', '${item}');">${item}</span>`;
+            }
+        });
+        function setActiveFilter(el, cId, val) {
+            document.querySelectorAll(`#${cId} .badge`).forEach(b => b.classList.replace('bg-primary', 'bg-outline-primary'));
+            el.classList.replace('bg-outline-primary', 'bg-primary');
+            onClickAction(val);
+        }
+        window.setActiveFilter = setActiveFilter;
+    }
+    
+    function resetIndividualFilter(containerId) {
+        if(containerId === 'typeFilters') activeTypeFilter = '';
+        if(containerId === 'materialFilters') activeMaterialFilter = '';
+        document.querySelectorAll(`#${containerId} .badge`).forEach(b => b.classList.replace('bg-primary', 'bg-outline-primary'));
+        document.querySelector(`#${containerId} .bg-dark`).classList.add('bg-primary');
+        fetchGarments();
+    }
+    window.resetIndividualFilter = resetIndividualFilter;
+
+    // 3. Handle asynchronous image upload
+    function handleUpload(input) {
+        if (!input.files || !input.files[0]) return;
+        
+        const formData = new FormData();
+        formData.append("file", input.files[0]);
+        
+        const statusDiv = document.getElementById('uploadStatus');
+        statusDiv.classList.remove('d-none');
+
+        fetch('/api/garments/upload', {
+            method: 'POST',
+            body: formData
+        })
+        .then(res => res.json())
+        .then(data => {
+            statusDiv.classList.add('d-none');
+            input.value = ''; // Clear the selection
+            fetchGarments();  // Refresh the list
+            fetchFilters();   // Refresh the filters
+        })
+        .catch(err => {
+            statusDiv.classList.add('d-none');
+            alert("Error parsing image. Check your API key or console logs.");
+        });
+    }
+
+    // 4. Open the modal and populate data
+    let bootstrapModal;
+    function openAnnotationModal(item) {
+        document.getElementById('currentGarmentId').value = item.id;
+        document.getElementById('modalImg').src = item.imageUrl;
+        document.getElementById('modalDesc').innerText = item.description;
+        document.getElementById('modalType').innerText = item.garmentType || 'N/A';
+        document.getElementById('modalStyle').innerText = item.style || 'N/A';
+        document.getElementById('modalMaterial').innerText = item.material || 'N/A';
+        document.getElementById('modalSeason').innerText = item.season || 'N/A';
+        
+        document.getElementById('customTagsInput').value = item.customTags || '';
+        document.getElementById('designerNotesInput').value = item.designerNotes || '';
+
+        bootstrapModal = new bootstrap.Modal(document.getElementById('annotationModal'));
+        bootstrapModal.show();
+    }
+
+    // 5. Save designer handwritten annotations
+    function saveAnnotations() {
+        const id = document.getElementById('currentGarmentId').value;
+        const customTags = document.getElementById('customTagsInput').value;
+        const designerNotes = document.getElementById('designerNotesInput').value;
+
+        fetch(`/api/garments/${id}/annotations`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ customTags, designerNotes })
+        })
+        .then(res => res.json())
+        .then(updatedItem => {
+            bootstrapModal.hide();
+            fetchGarments();
+        });
+    }
+</script>
+</body>
+</html>

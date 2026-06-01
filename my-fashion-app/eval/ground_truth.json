@@ -1,0 +1,5 @@
+{
+  "img_1.jpg": { "garmentType": "Jacket", "material": "Denim", "occasion": "Casual" },
+  "img_2.jpg": { "garmentType": "Dress", "material": "Silk", "occasion": "Evening" },
+  "img_3.jpg": { "garmentType": "Sweater", "material": "Wool", "occasion": "Casual" }
+}
